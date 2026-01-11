@@ -1,53 +1,49 @@
-import telebot
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
-import os
-import logging
+import plotly.graph_objects as go
 
-# إعداد نظام تسجيل الأخطاء لسهولة المراقبة على السيرفر
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# إعدادات الصفحة
+st.set_page_config(page_title="رادار البورصة المصرية الذكي", layout="wide")
 
-# جلب التوكن من الإعدادات السرية (Secrets)
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    logger.error("خطأ: لم يتم العثور على BOT_TOKEN في إعدادات البيئة!")
+st.title("🧠 نظام تحليل الأسهم بالذكاء الاصطناعي")
+st.write("تحليل معتمد على بصمة المؤسسات (FVG) والمعامل الرقمي 27")
 
-bot = telebot.TeleBot(TOKEN)
-CALC_FACTOR = 27 
+# مدخلات المستخدم
+ticker = st.text_input("أدخل رمز السهم (مثال: COMI, FAWR, EAST):", "COMI")
 
-def generate_ai_report(ticker):
+CALC_FACTOR = 27
+
+def analyze_stock(symbol_input):
     try:
-        symbol = f"{ticker.upper().strip()}.CA"
-        # جلب بيانات كافية للتحليل (150 يوم بفاصل 4 ساعات)
+        symbol = f"{symbol_input.upper().strip()}.CA"
         df = yf.download(symbol, period="150d", interval="4h", progress=False)
         
-        # تصحيح تنسيق الجداول في حال وجود MultiIndex
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
         if df.empty or len(df) < CALC_FACTOR:
-            return {"error": "بيانات غير كافية أو رمز سهم خاطئ."}
+            st.error("بيانات غير كافية لهذا السهم.")
+            return None
 
-        # --- [1] بصمة المؤسسات (Fair Value Gap) ---
+        # 1. بصمة المؤسسات (FVG)
         df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
 
-        # --- [2] التحليل الفني الرقمي ---
+        # 2. التحليل الرقمي (MACD)
         df.ta.macd(append=True)
         macd_col = [c for c in df.columns if 'MACDh' in c][0]
 
-        # --- [3] مستويات فيبوناتشي (منطقة الخصم) ---
+        # 3. فيبوناتشي
         hi, lo = float(df['High'].max()), float(df['Low'].min())
         curr_p = float(df['Close'].iloc[-1])
         fib_618 = hi - (0.618 * (hi - lo))
 
-        # --- [4] محرك التنبؤ (Random Forest) ---
+        # 4. محرك الذكاء الاصطناعي
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         clean_df = df.dropna()
-        
         X = clean_df[[macd_col, 'FVG']]
         y = clean_df['Target']
         
@@ -57,51 +53,42 @@ def generate_ai_report(ticker):
         prob = model.predict_proba(X.iloc[[-1]])[0][1]
         power = round(prob * 100, 1)
 
-        # --- [5] تحديد التوصية النهائية ---
-        if power >= 65 and curr_p <= fib_618:
-            status, color = "🟢 شراء قوي (Strong Buy)", "دخول سيولة مؤسسية وسعر مغري"
-        elif power >= 50:
-            status, color = "🟡 مراقبة (Wait/Watch)", "منطقة حيرة، انتظر تأكيد السيولة"
-        else:
-            status, color = "🔴 تجنب/بيع (Avoid/Sell)", "ضعف في الزخم وضغط بيعي محتمل"
+        return df, curr_p, fib_618, power, symbol
 
-        return {
-            "symbol": symbol, "price": curr_p, "power": power,
-            "fib": fib_618, "fvg": "نشطة ✅" if df['FVG'].iloc[-1] == 1 else "غير متوفرة",
-            "decision": status, "reason": color
-        }
     except Exception as e:
-        logger.error(f"Error analyzing {ticker}: {e}")
+        st.error(f"حدث خطأ: {e}")
         return None
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(m):
-    bot.reply_to(m, "👋 أهلاً بك في رادار البورصة المصرية الذكي!\nأرسل رمز السهم (مثال: COMI) للحصول على تحليل فوري.")
+if ticker:
+    result = analyze_stock(ticker)
+    if result:
+        df, curr_p, fib_618, power, full_symbol = result
+        
+        # عرض النتائج في أعمدة
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("السعر الحالي", f"{curr_p:.2f} ج.م")
+        with col2:
+            st.metric("قوة التنبؤ الذكي", f"{power}%")
+        with col3:
+            st.metric("مستوى الخصم (0.618)", f"{fib_618:.2f}")
 
-@bot.message_handler(func=lambda m: True)
-def handle_stock(m):
-    bot.send_chat_action(m.chat.id, 'typing')
-    res = generate_ai_report(m.text)
+        # تحديد التوصية
+        if power >= 65 and curr_p <= fib_618:
+            st.success("🏁 القرار النهائي: شراء قوي (تمركز مؤسسات)")
+        elif power >= 50:
+            st.warning("🏁 القرار النهائي: مراقبة وانتظار سيولة")
+        else:
+            st.error("🏁 القرار النهائي: خطر / بيع محتمل")
 
-    if res and "error" not in res:
-        msg = (
-            f"📊 **تحليل السهم: {res['symbol']}**\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"💰 السعر الحالي: `{res['price']:.2f}`\n"
-            f"🎯 هدف الخصم (0.618): `{res['fib']:.2f}`\n"
-            f"🌊 سيولة المؤسسات: `{res['fvg']}`\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🤖 **قوة التنبؤ الذكي:** `{res['power']}%`\n"
-            f"💡 التفسير: _{res['reason']}_\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🏁 **القرار:** {res['decision']}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"⚠️ *مبني على المعامل الرقمي 27*"
-        )
-        bot.reply_to(m, msg, parse_mode="Markdown")
-    else:
-        bot.reply_to(m, "❌ تعذر التحليل. تأكد من الكود (مثال: EAST, fawry) أو جرب لاحقاً.")
+        # رسم بياني تفاعلي
+        fig = go.Figure(data=[go.Candlestick(x=df.index,
+                open=df['Open'], high=df['High'],
+                low=df['Low'], close=df['Close'], name="السعر")])
+        
+        fig.add_hline(y=fib_618, line_dash="dash", line_color="green", annotation_text="منطقة الخصم")
+        fig.update_layout(title=f"الرسم البياني لسهم {full_symbol}", xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig, use_container_width=True)
 
-if __name__ == "__main__":
-    logger.info("البوت بدأ العمل الآن...")
-    bot.infinity_polling()
+        st.write("---")
+        st.info("💡 ملاحظة: هذا التحليل يعتمد على خوارزمية 'الغابة العشوائية' مع مراعاة فجوات السيولة المؤسسية.")
