@@ -5,38 +5,42 @@ import numpy as np
 import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
 import plotly.graph_objects as go
+from datetime import datetime
+import pytz
 
-st.set_page_config(page_title="AI Stock Alpha", layout="wide")
+# 1. إعداد الصفحة والمزامنة بتوقيت القاهرة
+st.set_page_config(page_title="نظام AI المسيطر - البورصة المصرية", layout="wide")
+cairo_tz = pytz.timezone('Africa/Cairo')
+cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🤖 محرك الذكاء الاصطناعي المسيطر للبورصة المصرية")
-st.write("القرار هنا يُتخذ بواسطة خوارزمية التعلم الآلي التي تحلل أنماط السيولة والزخم.")
+st.title("🤖 المحرك الذكي المسيطر (القرار للآلة)")
+st.sidebar.info(f"📍 توقيت القاهرة الحالي: {cairo_now}")
 
-ticker = st.text_input("أدخل رمز السهم للتحليل العميق:", "COMI")
+# 2. إدخال كود رويترز
+ticker_input = st.text_input("أدخل كود رويترز للسهم (مثال: COMI.CA, ABUK.CA, MFOT.CA):", "COMI.CA")
 
-def ai_dominant_analysis(symbol_input):
+def ai_governed_analysis(symbol):
     try:
-        symbol = f"{symbol_input.upper().strip()}.CA"
-        # جلب بيانات موسعة لتدريب النموذج
+        # جلب البيانات (يتم التعامل مع الرمز ككود رويترز مباشرة)
         df = yf.download(symbol, period="200d", interval="1d", progress=False)
         
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
         if df.empty or len(df) < 50:
             return None
 
-        # --- تحضير البيانات للذكاء الاصطناعي ---
+        # تحويل المؤشر الزمني لتوقيت القاهرة للمزامنة
+        df.index = df.index.tz_localize('UTC').tz_convert(cairo_tz)
+
+        # --- هندسة الميزات للذكاء الاصطناعي ---
         df['RSI'] = ta.rsi(df['Close'], length=14)
         df.ta.macd(append=True)
-        df['EMA_20'] = ta.ema(df['Close'], length=20)
-        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
+        df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0) # بصمة السيولة
         
-        # تحديد الهدف: هل سيصعد السعر في اليوم التالي؟
+        # الهدف: التنبؤ باتجاه الشمعة القادمة
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         
-        # تنظيف البيانات
-        features = ['RSI', 'EMA_20', 'FVG']
-        # إضافة أعمدة الماكد ديناميكياً
+        # اختيار الميزات التي سيسيطر بها الـ AI على القرار
+        features = ['RSI', 'ATR', 'FVG']
         macd_cols = [c for c in df.columns if 'MACD' in c]
         features.extend(macd_cols)
         
@@ -44,49 +48,61 @@ def ai_dominant_analysis(symbol_input):
         X = data_clean[features]
         y = data_clean['Target']
 
-        # --- تدريب محرك القرار (Random Forest) ---
-        # المعامل الرقمي 27 يستخدم هنا كقاعدة لبناء الغابة العشوائية
+        # --- محرك RandomForest (المعامل الرقمي 27 في النواة) ---
+        # هنا الـ AI يحلل الأنماط التاريخية ليعطي قراره الخاص
         model = RandomForestClassifier(n_estimators=100, random_state=27)
         model.fit(X[:-1], y[:-1])
 
-        # التنبؤ بالحالة القادمة
-        current_features = X.iloc[[-1]]
-        prediction_prob = model.predict_proba(current_features)[0][1]
-        ai_confidence = round(prediction_prob * 100, 2)
+        # حساب احتمالية الصعود (السيطرة الذكية)
+        last_row = X.iloc[[-1]]
+        prediction_prob = model.predict_proba(last_row)[0][1]
+        ai_score = round(prediction_prob * 100, 2)
 
-        return df, ai_confidence, symbol, model, features
+        return df, ai_score, symbol, model, features
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"خطأ في معالجة البيانات: {e}")
         return None
 
-if ticker:
-    res = ai_dominant_analysis(ticker)
-    if res:
-        df, confidence, full_name, model, feature_names = res
+if ticker_input:
+    # التأكد من استخدام صيغة رويترز الصحيحة للبورصة المصرية
+    if not ticker_input.upper().endswith(".CA"):
+        st.warning("⚠️ تنبيه: أكواد البورصة المصرية في رويترز يجب أن تنتهي بـ .CA")
+    
+    result = ai_governed_analysis(ticker_input.upper())
+    
+    if result:
+        df, score, name, model, feature_list = result
         
-        # عرض "عقل" الذكاء الاصطناعي
+        # واجهة القرار المسيطر
+        st.subheader(f"🔍 تحليل المحرك الذكي لسهم: {name}")
+        
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.metric("ثقة الذكاء الاصطناعي بالصعود", f"{confidence}%")
-            if confidence > 60:
-                st.success("🤖 القرار: شراء - النمط إيجابي جداً")
-            elif confidence < 40:
-                st.error("🤖 القرار: بيع/تجنب - النمط سلبي")
+            st.metric("درجة ثقة الـ AI في الصعود", f"{score}%")
+            if score >= 65:
+                st.success("🤖 قرار الـ AI: شراء مؤكد (Strong Buy Signal)")
+            elif score <= 35:
+                st.error("🤖 قرار الـ AI: خروج/تجنب (Strong Sell Signal)")
             else:
-                st.warning("🤖 القرار: منطقة حيرة - النمط غير مكتمل")
+                st.warning("🤖 قرار الـ AI: منطقة حياد (Neutral Zone)")
+            
+            st.write("---")
+            st.write("**لماذا اتخذ الـ AI هذا القرار؟**")
+            importances = model.feature_importances_
+            feat_imp = pd.Series(importances, index=feature_list).sort_values(ascending=False)
+            st.write(feat_imp)
 
         with col2:
-            # أهمية المؤشرات بالنسبة للذكاء الاصطناعي
-            importances = model.feature_importances_
-            feat_imp = pd.Series(importances, index=feature_names).sort_values()
-            st.write("📊 ترتيب المؤشرات حسب تأثيرها على قرار الـ AI حالياً:")
-            st.bar_chart(feat_imp)
+            # الرسم البياني المزامر بتوقيت القاهرة
+            fig = go.Figure(data=[go.Candlestick(
+                x=df.index,
+                open=df['Open'], high=df['High'],
+                low=df['Low'], close=df['Close'],
+                name=name
+            )])
+            fig.update_layout(title=f"حركة السعر (مزامنة القاهرة)", xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig, use_container_width=True)
 
-        # الرسم البياني
-        fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-        fig.update_layout(title=f"تحليل المسار الذكي لـ {full_name}")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.info(f"💡 الذكاء الاصطناعي قام بمعالجة {len(df)} يوم تداول لاتخاذ هذا القرار.")
+        st.info("💡 تم تدريب النموذج وتحديث البيانات لتعمل بمزامنة توقيت القاهرة وتتبع أكواد رويترز (.CA).")
