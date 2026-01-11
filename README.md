@@ -1,16 +1,19 @@
-## Hi there 👋
+# Hi there! I'm Nassef 👋
 
-<!--
-**nassef140/nassef140** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+I am a passionate Python developer in the making, currently building my skills and working on interesting projects from my Android device.
 
-Here are some ideas to get you started:
+## 🚀 About Me
+- 🔭 I’m currently working on **Python automation and educational projects.**
+- 🌱 I’m currently learning **Advanced Python and Data Structures.**
+- 📱 Mobile Coder: Proving that great code can be written from anywhere!
+- 🆔 User ID: 1511181106
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+## 🛠 Tech Stack
+- **Language:** Python 🐍
+- **Tools:** Git, GitHub, Termux (Android)
+
+## 📊 GitHub Stats
+![Nassef's GitHub stats](https://github-readme-stats.vercel.app/api?username=nassef140&show_icons=true&theme=dark)
+
+---
+*“The best way to predict the future is to invent it.”*
