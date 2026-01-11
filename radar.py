@@ -8,87 +8,102 @@ from datetime import datetime
 import pytz
 
 # 1. إعدادات المزامنة والواجهة
-st.set_page_config(page_title="AI Backtest Advisor", layout="centered")
+st.set_page_config(page_title="AI Technical Pro", layout="centered")
 cairo_tz = pytz.timezone('Africa/Cairo')
 cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🦅 المستشار المسيطر (SMC + تدقيق تاريخي)")
-st.markdown(f"**📍 توقيت القاهرة:** `{cairo_now}`")
+st.title("👨‍💻 المستشار الفني والمحرك الذكي")
+st.markdown(f"**📅 التاريخ:** `{cairo_now}`")
+st.write("---")
 
-ticker_input = st.text_input("أدخل كود السهم (مثال: COMI, FWRY, ABUK):", "COMI")
+ticker_input = st.text_input("أدخل كود السهم (مثال: COMI, FWRY):", "COMI")
 
-def ai_backtest_engine(symbol_raw):
+def get_technical_report(symbol_raw):
     try:
         symbol = f"{symbol_raw.upper().strip()}.CA"
-        
-        # حل مشكلة جلب البيانات وتغييرات ياهو الأخيرة
+        # جلب البيانات (معالجة تحديثات ياهو)
         df = yf.download(symbol, period="250d", interval="4h", auto_adjust=True, progress=False)
-        if df.empty or len(df) < 50:
+        if df.empty:
             df = yf.download(symbol, period="400d", interval="1d", auto_adjust=True, progress=False)
+        
+        if df.empty: return None
 
-        if df.empty: return {"error": "فشل جلب البيانات."}
-
-        # إصلاح هيكل البيانات ومعالجة المناطق الزمنية
+        # إصلاح الجداول والوقت
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         df.index = df.index.tz_convert(cairo_tz) if df.index.tz else df.index.tz_localize('UTC').tz_convert(cairo_tz)
 
-        # --- [استراتيجية SMC والقياس الرقمي] ---
+        # 1. تحليل SMC (Fair Value Gap)
         df['FVG'] = np.where((df['Low'] > df['High'].shift(2)), 1, np.where((df['High'] < df['Low'].shift(2)), -1, 0))
-        df['BOS'] = np.where(df['Close'] > df['High'].rolling(10).max().shift(1), 1, 0)
+        
+        # 2. مؤشرات الزخم والقياس الرقمي
         df.ta.macd(append=True)
         macd_h = [c for c in df.columns if 'MACDh' in c][0]
-        fib_discount = df['High'].max() - (0.618 * (df['High'].max() - df['Low'].min()))
+        rsi = ta.rsi(df['Close'], length=14)
+        
+        # 3. فيبوناتشي (نقاط الدخول والبيع)
+        h_max, l_min = df['High'].max(), df['Low'].min()
+        fib_entry = l_min + (h_max - l_min) * 0.618  # منطقة الخصم الذهبية
+        fib_target = h_max  # المستهدف القمة السابقة
+        stop_loss = l_min * 0.98  # وقف الخسارة تحت آخر قاع
 
-        # --- [محرك الـ AI والتدقيق التاريخي] ---
-        df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-        features = ['FVG', 'BOS', macd_h]
+        # 4. تدريب الذكاء الاصطناعي ودقة التوقع
+        df['Target_Next'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+        features = ['FVG', macd_h]
         clean = df.dropna()
-        X, y = clean[features], clean['Target']
-
-        # تقسيم البيانات للتدقيق (80% تدريب، 20% اختبار دقة)
+        X, y = clean[features], clean['Target_Next']
+        
         split = int(len(clean) * 0.8)
         model = RandomForestClassifier(n_estimators=100, random_state=27)
         model.fit(X[:split], y[:split])
-        
-        # حساب دقة التوقعات السابقة على هذا السهم
         accuracy = model.score(X[split:], y[split:]) * 100
-        
-        # التوقع الحالي
         prob = model.predict_proba(X.iloc[[-1]])[0][1]
-        
+
         return {
             "symbol": symbol, "price": df['Close'].iloc[-1], "confidence": round(prob * 100, 1),
-            "accuracy": round(accuracy, 1), "fvg": df['FVG'].iloc[-1], "fib": fib_discount
+            "accuracy": round(accuracy, 1), "fvg": df['FVG'].iloc[-1], "rsi": rsi.iloc[-1],
+            "entry": fib_entry, "target": fib_target, "stop": stop_loss
         }
     except Exception as e:
         return {"error": str(e)}
 
 if ticker_input:
-    with st.spinner('جاري مراجعة سجلات السهم وتحليل سيولة المؤسسات...'):
-        res = ai_backtest_engine(ticker_input)
+    with st.spinner('يتم الآن دمج رؤية المحلل مع نتائج الـ AI...'):
+        data = get_technical_report(ticker_input)
     
-    if "error" not in res:
-        st.subheader(f"📄 التقرير الاستشاري: {res['symbol']}")
-        
-        # عرض نسبة نجاح الـ AI السابقة
-        st.sidebar.metric("دقة التوقع التاريخية لهذا السهم", f"{res['accuracy']}%")
-        
-        # الاستشارة الجريئة
-        if res['confidence'] >= 70 and res['price'] <= res['fib']:
-            title, msg, color = "🎯 اقتناص مؤكد (High Conviction)", "السعر في منطقة خصم مثالية مع توافق سيولة المؤسسات. الدقة التاريخية تدعم هذا القرار.", "green"
-        elif res['confidence'] <= 35:
-            title, msg, color = "⚠️ هروب (Institutional Exit)", "الذكاء الاصطناعي يرصد خروج سيولة ذكية. تجنب السهم تماماً بناءً على ضعف الأنماط.", "red"
-        else:
-            title, msg, color = "⚖️ منطقة تذبذب (Neutral)", "السعر في منطقة حيادية. انتظر ظهور بصمة FVG واضحة قبل المغامرة.", "orange"
-
-        st.markdown(f"### <span style='color:{color}'>{title}</span>", unsafe_allow_html=True)
-        st.info(f"💡 **الاستشارة:** {msg}")
-
-        col1, col2 = st.columns(2)
-        col1.metric("ثقة المحرك الحالية", f"{res['confidence']}%")
-        col2.metric("مستوى الخصم (0.618)", f"{res['fib']:.2f}")
+    if data and "error" not in data:
+        # --- الجزء الأول: نتائج الاستراتيجية الرقمية ---
+        st.subheader("📊 أولاً: نتائج الاستراتيجية الرقمية (SMC/AI)")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("ثقة المحرك", f"{data['confidence']}%")
+        col2.metric("الدقة التاريخية", f"{data['accuracy']}%")
+        col3.metric("بصمة المؤسسات (FVG)", "إيجابية ✅" if data['fvg'] == 1 else "سلبية ❌" if data['fvg'] == -1 else "محايدة")
         
         st.write("---")
-        st.caption(f"تنبيه: تم تدريب النموذج على {res['accuracy']}% من البيانات التاريخية بنجاح.")
+
+        # --- الجزء الثاني: تقرير المحلل الفني ---
+        st.subheader("🖋️ ثانياً: تقرير المحلل الفني")
+        
+        # صياغة رأي المحلل بناءً على البيانات
+        if data['confidence'] >= 65 and data['price'] <= data['entry']:
+            stance = "🔵 تجميع شراء"
+            opinion = "السهم يتداول حالياً في مناطق خصم سعرية (Discount Zone). نلاحظ توافقاً بين بصمة المؤسسات والذكاء الاصطناعي، مما يعطي ضوءاً أخضر لبناء مراكز شرائية."
+        elif data['rsi'] > 70:
+            stance = "🔴 جني أرباح / خطر"
+            opinion = "السهم دخل منطقة تشبع شرائي. بالرغم من قوة الاتجاه، إلا أن المخاطرة في الدخول الآن عالية. يفضل انتظار تصحيح لمستويات الفيبوناتشي."
+        else:
+            stance = "🟡 مراقبة"
+            opinion = "السهم في منطقة عرضية. الزخم الحالي غير كافٍ لتأكيد اختراق القمم. ننصح بالانتظار حتى ظهور بصمة سيولة FVG واضحة."
+
+        st.markdown(f"### **الرأي الفني:** {stance}")
+        st.write(opinion)
+
+        # --- الجزء الثالث: التوصية السعرية ---
+        st.markdown("### **🎯 خريطة التداول المقترحة:**")
+        st.success(f"📍 **نقطة الدخول المثالية:** {data['entry']:.2f} ج.م")
+        st.info(f"🚀 **المستهدف الأول (جني أرباح):** {data['target']:.2f} ج.م")
+        st.error(f"🛡️ **وقف الخسارة (إلزامي):** {data['stop']:.2f} ج.م")
+        
+        st.write("---")
+        st.caption(f"تم إعداد التقرير آلياً. دقة المحلل على هذا السهم تاريخياً بلغت {data['accuracy']}%.")
     else:
-        st.error(f"حدث خطأ: {res['error']}")
+        st.error(f"حدث خطأ: {data.get('error', 'تعذر جلب البيانات')}")
