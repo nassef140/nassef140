@@ -4,14 +4,11 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
-import os # مكتبة النظام لقراءة المتغيرات المخفية
+import os
 
-# --- إعدادات الأمان ---
-# هنا نقوم بإخبار الكود أن يبحث عن متغير اسمه BOT_TOKEN في إعدادات الخادم
-# لن يتم كتابة الرقم السري هنا أبداً
+# إعدادات الأمان وقراءة التوكن من البيئة
 TOKEN = os.getenv("BOT_TOKEN") 
 bot = telebot.TeleBot(TOKEN)
-
 CALC_FACTOR = 27 # المعامل الرقمي الجسر
 
 def generate_simple_ai_report(ticker):
@@ -19,29 +16,27 @@ def generate_simple_ai_report(ticker):
         symbol = f"{ticker.upper().strip()}.CA"
         # جلب البيانات لآخر 150 يوم بفاصل 4 ساعات
         df = yf.download(symbol, period="150d", interval="4h", progress=False)
-        
         if isinstance(df.columns, pd.MultiIndex): 
             df.columns = df.columns.get_level_values(0)
 
         if df.empty or len(df) < CALC_FACTOR: 
             return None
 
-        # 1. كشف بصمة المؤسسات (Fair Value Gap - FVG)
+        # 1. كشف بصمة المؤسسات (FVG)
         df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
 
-        # 2. قياس الزخم باستخدام MACD
+        # 2. قياس الزخم (MACD)
         df.ta.macd(append=True)
         macd_h = [c for c in df.columns if 'MACDh' in c][0]
 
-        # 3. حساب مستويات الخصم (Fibonacci Retracement 0.618)
+        # 3. حساب مناطق الخصم (Fibonacci)
         hi, lo = float(df['High'].max()), float(df['Low'].min())
         curr_p = float(df['Close'].iloc[-1])
         fib_618 = hi - (0.618 * (hi - lo))
 
-        # 4. محرك التنبؤ بالذكاء الاصطناعي (Random Forest)
+        # 4. محرك الذكاء الاصطناعي (AI Engine)
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         clean_df = df.dropna()
-        
         model = RandomForestClassifier(n_estimators=CALC_FACTOR, random_state=42)
         X = clean_df[[macd_h, 'FVG']]
         y = clean_df['Target']
@@ -50,7 +45,7 @@ def generate_simple_ai_report(ticker):
         ai_prob = model.predict_proba(X.iloc[[-1]])[0][1]
         ai_power = round(ai_prob * 100, 1)
 
-        # 5. منطق اتخاذ القرار
+        # 5. اتخاذ القرار
         if ai_power >= 65 and curr_p <= fib_618:
             status = "🟢 فرصة شراء قوية"
             explanation = "الذكاء الاصطناعي يرى دخول سيولة مؤسسية كبيرة والسعر حالياً في منطقة رخيصة (Discount Zone)."
@@ -75,6 +70,7 @@ def handle_request(m):
     data = generate_simple_ai_report(m.text)
 
     if data:
+        # تقرير العميل المبسط
         report = (
             f"🧠 **تقرير الذكاء الاصطناعي المبسط**\n"
             f"ــــــــــــــــــــــــــــــــــــــــ\n"
@@ -92,4 +88,8 @@ def handle_request(m):
         )
         bot.reply_to(m, report, parse_mode="Markdown")
     else:
-        bot.reply_to(m, "❌ عذراً، لم أتمكن من
+        # هنا تم إصلاح الخطأ الذي ظهر في الصورة
+        bot.reply_to(m, "❌ عذراً، لم أتمكن من تحليل هذا السهم. تأكد من الكود.")
+
+if __name__ == "__main__":
+    bot.infinity_polling()
