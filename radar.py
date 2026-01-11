@@ -4,83 +4,95 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
-import plotly.graph_objects as go
 from datetime import datetime
 import pytz
 
-# 1. إعدادات الصفحة والمزامنة الزمنية
-st.set_page_config(page_title="AI Egyptian Radar - 4H", layout="wide")
+# 1. إعدادات المزامنة بتوقيت القاهرة
+st.set_page_config(page_title="AI Textual Analysis - EGX", layout="centered")
 cairo_tz = pytz.timezone('Africa/Cairo')
 cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🤖 المحرك الذكي المسيطر - فريم 4 ساعات")
-st.sidebar.markdown(f"### 📍 توقيت القاهرة\n`{cairo_now}`")
-st.sidebar.info("التحليل الحالي يعتمد على إطار 4 ساعات لتوفير إشارات مضاربية دقيقة.")
+st.title("🤖 محرك التحليل النصي الذكي")
+st.write(f"📍 **توقيت القاهرة الحالي:** `{cairo_now}`")
+st.write("---")
 
-# 2. إدخال كود السهم (البورصة المصرية)
-ticker_input = st.text_input("أدخل كود السهم (مثال: COMI, FWRY, ABUK):", "COMI")
+# 2. إدخال كود السهم
+ticker_input = st.text_input("أدخل كود البورصة المصرية (مثال: COMI, FWRY):", "COMI")
 
-def ai_engine_4h(symbol_input):
+def ai_textual_engine(symbol_input):
     try:
-        # تحويل المدخل لكود رويترز
         symbol = symbol_input.upper().strip()
         if not symbol.endswith(".CA"):
             symbol = f"{symbol}.CA"
             
-        # جلب بيانات فريم 4 ساعات (نحتاج فترة زمنية كافية للتدريب)
-        # ملاحظة: yfinance يدعم فريم 4h لآخر سنتين كحد أقصى
-        df = yf.download(symbol, period="730d", interval="4h", progress=False)
+        # جلب البيانات لفريم 4 ساعات
+        df = yf.download(symbol, period="300d", interval="4h", progress=False)
         
         if df.empty or len(df) < 50:
             return None
 
-        # مزامنة البيانات مع توقيت القاهرة
+        # مزامنة التوقيت
         df.index = df.index.tz_localize('UTC').tz_convert(cairo_tz)
 
-        # --- هندسة الميزات الفنية (AI Features) ---
+        # --- هندسة الميزات للذكاء الاصطناعي ---
         df['RSI'] = ta.rsi(df['Close'], length=14)
         df.ta.macd(append=True)
-        # بصمة المؤسسات على فريم 4 ساعات
-        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0) 
+        df['EMA_20'] = ta.ema(df['Close'], length=20)
+        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
         
-        # الهدف: التنبؤ بحركة الشمعة (الـ 4 ساعات) القادمة
+        # التنبؤ
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-        
-        # اختيار الميزات
         macd_cols = [c for c in df.columns if 'MACD' in c]
-        features = ['RSI', 'FVG'] + macd_cols
+        features = ['RSI', 'EMA_20', 'FVG'] + macd_cols
         
         data_clean = df.dropna()
         X = data_clean[features]
         y = data_clean['Target']
 
-        # --- تدريب محرك RandomForest (نواة المعامل 27) ---
+        # محرك القرار (المعامل الرقمي 27)
         model = RandomForestClassifier(n_estimators=100, random_state=27)
         model.fit(X[:-1], y[:-1])
 
-        # حساب احتمالية القرار المسيطر لشمعة الـ 4 ساعات القادمة
+        # استخراج النتائج النهائية
+        last_price = df['Close'].iloc[-1]
+        prev_price = df['Close'].iloc[-2]
+        change = ((last_price - prev_price) / prev_price) * 100
         prediction_prob = model.predict_proba(X.iloc[[-1]])[0][1]
-        ai_score = round(prediction_prob * 100, 2)
+        ai_confidence = round(prediction_prob * 100, 2)
+        
+        # تحليل بصمة السيولة
+        fvg_status = "رصد سيولة مؤسسية (FVG) نشطة حالياً" if df['FVG'].iloc[-1] == 1 else "لا توجد بصمة سيولة واضحة في الشمعة الحالية"
+        rsi_val = df['RSI'].iloc[-1]
 
-        return df, ai_score, symbol, model, features
+        return {
+            "symbol": symbol,
+            "price": last_price,
+            "change": change,
+            "confidence": ai_confidence,
+            "fvg": fvg_status,
+            "rsi": rsi_val,
+            "trend": "صاعد" if last_price > df['EMA_20'].iloc[-1] else "هابط"
+        }
 
     except Exception as e:
-        st.error(f"خطأ تقني: {e}")
+        st.error(f"خطأ في التحليل: {e}")
         return None
 
 if ticker_input:
-    res = ai_engine_4h(ticker_input)
+    with st.spinner('جاري معالجة البيانات وتحليل الأنماط...'):
+        data = ai_textual_engine(ticker_input)
     
-    if res:
-        df, score, full_symbol, model, feature_list = res
+    if data:
+        # صياغة التقرير النصي المسيطر
+        st.subheader(f"📄 تقرير الذكاء الاصطناعي للسهم: {data['symbol']}")
         
-        # عرض نتائج السيطرة الذكية
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            st.metric(f"توقعات AI لـ {full_symbol} (4H)", f"{score}%")
-            if score >= 60:
-                st.success("🤖 القرار: شراء (نمط صاعد على 4 ساعات)")
-            elif score <= 40:
-                st.error("🤖 القرار: بيع (نمط هابط على 4 ساعات)")
-            else:
+        # تحديد لون الحالة
+        if data['confidence'] >= 65:
+            decision = "🟢 إشارة شراء قوية (Strong Buy Signal)"
+            summary = "يهيمن النمط الشرائي على حركة السهم حالياً، مع توافق المؤشرات الفنية للتحرك نحو مستويات أعلى."
+        elif data['confidence'] <= 35:
+            decision = "🔴 إشارة بيع/تجنب (Strong Sell Signal)"
+            summary = "يرصد الذكاء الاصطناعي ضغوطاً بيعية قوية وتخارجاً محتملاً للسيولة، مما يرفع نسبة المخاطرة."
+        else:
+            decision = "🟡 حالة انتظار (Neutral Zone)"
+            summary = "السعر يتحرك في نطاق عرضي أو غير
