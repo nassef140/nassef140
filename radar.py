@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestClassifier
 from datetime import datetime
 import pytz
 
-# 1. إعدادات الصفحة والمزامنة
+# 1. إعدادات الصفحة والمزامنة (توقيت القاهرة)
 st.set_page_config(page_title="AI Bold Advisor EGX", layout="centered")
 cairo_tz = pytz.timezone('Africa/Cairo')
 cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
@@ -30,18 +30,22 @@ def ai_bold_advisor_pro(symbol_raw):
         if df.empty or len(df) < 20:
             return {"error": "لا توجد بيانات كافية لهذا السهم حالياً."}
 
-        # تصحيح تسمية الأعمدة
+        # تصحيح تسمية الأعمدة في حال وجود MultiIndex
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # المزامنة مع توقيت القاهرة
-        df.index = df.index.tz_localize('UTC').tz_convert(cairo_tz)
+        # المزامنة مع توقيت القاهرة (تم إصلاح خطأ tz-aware هنا)
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC').tz_convert(cairo_tz)
+        else:
+            df.index = df.index.tz_convert(cairo_tz)
 
         # حساب المؤشرات (هندسة الميزات)
         df['RSI'] = ta.rsi(df['Close'], length=14)
         df.ta.macd(append=True)
         df['EMA_20'] = ta.ema(df['Close'], length=20)
         df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+        # بصمة السيولة المؤسسية FVG
         df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
         
         # تدريب المحرك الذكي
@@ -50,6 +54,8 @@ def ai_bold_advisor_pro(symbol_raw):
         features = ['RSI', 'EMA_20', 'FVG', 'ATR'] + macd_cols
         
         clean_df = df.dropna()
+        if clean_df.empty: return {"error": "فشل تنظيف البيانات."}
+        
         X = clean_df[features]
         y = clean_df['Target']
 
@@ -57,7 +63,7 @@ def ai_bold_advisor_pro(symbol_raw):
         model = RandomForestClassifier(n_estimators=100, random_state=27)
         model.fit(X[:-1], y[:-1])
 
-        # التحليلات النهائية
+        # الحسابات الاستشارية النهائية
         prob = model.predict_proba(X.iloc[[-1]])[0][1]
         confidence = round(prob * 100, 1)
         price = df['Close'].iloc[-1]
@@ -73,28 +79,28 @@ def ai_bold_advisor_pro(symbol_raw):
         return {"error": f"حدث خطأ أثناء التحليل: {str(e)}"}
 
 if ticker_input:
-    with st.spinner('⚡ المحرك الذكي يقوم باختراق البيانات الآن...'):
+    with st.spinner('⚡ المحرك الذكي يحلل نوايا السيولة الآن...'):
         res = ai_bold_advisor_pro(ticker_input)
     
     if res and "error" not in res:
         st.subheader(f"📄 التقرير الاستشاري: {res['symbol']}")
         
-        # تحديد حدة الاستشارة
+        # صياغة الاستشارة الجريئة
         if res['confidence'] >= 68:
-            title, msg, color = "🔥 هجوم - فرصة ذهبية", "الذكاء الاصطناعي يرصد سيولة مؤسسية ضخمة. النمط يوحي بانفجار سعري وشيك. لا تتردد في الاقتناص.", "green"
+            title, msg, color = "🔥 هجوم - فرصة ذهبية", "الذكاء الاصطناعي يرصد سيولة مؤسسية ضخمة تدخل السهم. النمط يوحي بانفجار سعري وشيك. لا تتردد في الاقتناص.", "green"
         elif res['confidence'] <= 35:
-            title, msg, color = "⚠️ هروب - خطر مرتفع", "المحرك يحذر من تصريف خفي. السيولة تخرج ببطء. لا تكن آخر من يخرج من السفينة.", "red"
+            title, msg, color = "⚠️ هروب - خطر مرتفع", "المحرك يحذر من تصريف خفي. السيولة تخرج ببطء من السهم. لا تكن آخر من يخرج من السفينة، الخروج الآن قرار حكيم.", "red"
         else:
-            title, msg, color = "⏳ مراقبة - فخ سعري", "السيولة متذبذبة والذكاء الاصطناعي غير واثق. السعر قد يكون في مرحلة تضليل. انتظر بصمة واضحة.", "orange"
+            title, msg, color = "⏳ مراقبة - فخ سعري", "السيولة متذبذبة والذكاء الاصطناعي غير واثق من النوايا. السعر قد يكون في مرحلة تضليل. انتظر بصمة سيولة واضحة.", "orange"
 
         st.markdown(f"### <span style='color:{color}'>{title}</span>", unsafe_allow_html=True)
         st.info(f"💡 **الاستشارة الجريئة:** {msg}")
 
-        # عرض الأرقام في أعمدة
+        # عرض الأرقام
         c1, c2 = st.columns(2)
         with c1:
             st.write(f"**💰 السعر الحالي:** `{res['price']:.2f} ج.م`")
-            st.write(f"**🤖 ثقة المحرك:** `{res['confidence']}%` status: {res['trend']}")
+            st.write(f"**🤖 ثقة المحرك:** `{res['confidence']}%` ({res['trend']})")
         with c2:
             st.write(f"**🎯 هدف جريء:** `{res['target']:.2f}`")
             st.write(f"**🛡️ وقف الخسارة:** `{res['sl']:.2f}`")
