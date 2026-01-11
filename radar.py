@@ -7,92 +7,111 @@ from sklearn.ensemble import RandomForestClassifier
 from datetime import datetime
 import pytz
 
-# 1. إعدادات المزامنة بتوقيت القاهرة
-st.set_page_config(page_title="AI Textual Analysis - EGX", layout="centered")
+# 1. المزامنة بتوقيت القاهرة
+st.set_page_config(page_title="AI Bold Advisor - EGX", layout="centered")
 cairo_tz = pytz.timezone('Africa/Cairo')
 cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🤖 محرك التحليل النصي الذكي")
-st.write(f"📍 **توقيت القاهرة الحالي:** `{cairo_now}`")
+st.title("🦅 المستشار الذكي الجريء - البورصة المصرية")
+st.markdown(f"**📍 حالة السوق الآن:** `{cairo_now}`")
 st.write("---")
 
-# 2. إدخال كود السهم
-ticker_input = st.text_input("أدخل كود البورصة المصرية (مثال: COMI, FWRY):", "COMI")
+ticker_input = st.text_input("أدخل كود السهم لتحليل استشاري عميق (مثال: COMI, FWRY):", "COMI")
 
-def ai_textual_engine(symbol_input):
+def ai_bold_advisor(symbol_raw):
     try:
-        symbol = symbol_input.upper().strip()
-        if not symbol.endswith(".CA"):
-            symbol = f"{symbol}.CA"
-            
-        # جلب البيانات لفريم 4 ساعات
+        symbol = f"{symbol_raw.upper().strip()}.CA"
         df = yf.download(symbol, period="300d", interval="4h", progress=False)
         
         if df.empty or len(df) < 50:
             return None
 
-        # مزامنة التوقيت
+        # مزامنة البيانات
         df.index = df.index.tz_localize('UTC').tz_convert(cairo_tz)
 
-        # --- هندسة الميزات للذكاء الاصطناعي ---
+        # هندسة المؤشرات المتقدمة
         df['RSI'] = ta.rsi(df['Close'], length=14)
         df.ta.macd(append=True)
         df['EMA_20'] = ta.ema(df['Close'], length=20)
-        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
+        df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0) # فجوة القيمة العادلة (سيولة)
         
-        # التنبؤ
+        # الذكاء الاصطناعي - التدريب
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
         macd_cols = [c for c in df.columns if 'MACD' in c]
-        features = ['RSI', 'EMA_20', 'FVG'] + macd_cols
+        features = ['RSI', 'EMA_20', 'FVG', 'ATR'] + macd_cols
         
-        data_clean = df.dropna()
-        X = data_clean[features]
-        y = data_clean['Target']
+        clean = df.dropna()
+        X = clean[features]
+        y = clean['Target']
 
-        # محرك القرار (المعامل الرقمي 27)
         model = RandomForestClassifier(n_estimators=100, random_state=27)
         model.fit(X[:-1], y[:-1])
 
-        # استخراج النتائج النهائية
-        last_price = df['Close'].iloc[-1]
-        prev_price = df['Close'].iloc[-2]
-        change = ((last_price - prev_price) / prev_price) * 100
-        prediction_prob = model.predict_proba(X.iloc[[-1]])[0][1]
-        ai_confidence = round(prediction_prob * 100, 2)
+        # الحسابات الاستشارية
+        prob = model.predict_proba(X.iloc[[-1]])[0][1]
+        confidence = round(prob * 100, 2)
+        curr_price = df['Close'].iloc[-1]
+        atr_val = df['ATR'].iloc[-1]
         
-        # تحليل بصمة السيولة
-        fvg_status = "رصد سيولة مؤسسية (FVG) نشطة حالياً" if df['FVG'].iloc[-1] == 1 else "لا توجد بصمة سيولة واضحة في الشمعة الحالية"
-        rsi_val = df['RSI'].iloc[-1]
+        # حساب أهداف جريئة (Target & SL)
+        target_price = curr_price + (atr_val * 2)
+        stop_loss = curr_price - (atr_val * 1.5)
 
         return {
-            "symbol": symbol,
-            "price": last_price,
-            "change": change,
-            "confidence": ai_confidence,
-            "fvg": fvg_status,
-            "rsi": rsi_val,
-            "trend": "صاعد" if last_price > df['EMA_20'].iloc[-1] else "هابط"
+            "symbol": symbol, "price": curr_price, "confidence": confidence,
+            "fvg": df['FVG'].iloc[-1], "rsi": df['RSI'].iloc[-1],
+            "target": target_price, "sl": stop_loss, "trend": "صاعد" if curr_price > df['EMA_20'].iloc[-1] else "هابط"
         }
-
     except Exception as e:
-        st.error(f"خطأ في التحليل: {e}")
-        return None
+        return {"error": str(e)}
 
 if ticker_input:
-    with st.spinner('جاري معالجة البيانات وتحليل الأنماط...'):
-        data = ai_textual_engine(ticker_input)
+    with st.spinner('يتم الآن اختراق البيانات وتحليل نوايا السيولة...'):
+        res = ai_bold_advisor(ticker_input)
     
-    if data:
-        # صياغة التقرير النصي المسيطر
-        st.subheader(f"📄 تقرير الذكاء الاصطناعي للسهم: {data['symbol']}")
+    if res and "error" not in res:
+        st.subheader(f"📑 التقرير الاستشاري لسهم: {res['symbol']}")
         
-        # تحديد لون الحالة
-        if data['confidence'] >= 65:
-            decision = "🟢 إشارة شراء قوية (Strong Buy Signal)"
-            summary = "يهيمن النمط الشرائي على حركة السهم حالياً، مع توافق المؤشرات الفنية للتحرك نحو مستويات أعلى."
-        elif data['confidence'] <= 35:
-            decision = "🔴 إشارة بيع/تجنب (Strong Sell Signal)"
-            summary = "يرصد الذكاء الاصطناعي ضغوطاً بيعية قوية وتخارجاً محتملاً للسيولة، مما يرفع نسبة المخاطرة."
+        # صياغة الاستشارة بناءً على قوة الـ AI
+        if res['confidence'] >= 70:
+            advice_title = "🔥 اقتناص - فرصة هجومية"
+            advice_text = f"الذكاء الاصطناعي يكتشف 'تجمعاً مؤسسياً' عنيفاً. النمط الحالي يشير إلى انفجار سعري قريب. **ادخل بجرأة** مع الالتزام بالأهداف."
+            color = "green"
+        elif res['confidence'] <= 30:
+            advice_title = "⚠️ هروب - تحذير عالي الخطورة"
+            advice_text = "يتم رصد عمليات 'توزيع' خفية. الذكاء الاصطناعي يشير إلى أن السهم فقد دعمه الرقمي. **لا تكن الضحية الأخيرة**، الخروج هو القرار الأذكى."
+            color = "red"
         else:
-            decision = "🟡 حالة انتظار (Neutral Zone)"
-            summary = "السعر يتحرك في نطاق عرضي أو غير
+            advice_title = "⏳ ترقب - السهم في منطقة تضليل"
+            advice_text = "السيولة الحالية متذبذبة والذكاء الاصطناعي غير واثق من الاتجاه القادم. **احتفظ بسيولتك** حتى تتضح بصمة المؤسسات."
+            color = "orange"
+
+        # عرض التقرير الجريء
+        st.markdown(f"### <span style='color:{color}'>{advice_title}</span>", unsafe_allow_html=True)
+        st.info(f"💡 **الاستشارة الجريئة:** {advice_text}")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"""
+            **🔍 تفاصيل القوة الرقمية:**
+            - السعر الحالي: **{res['price']:.2f} ج.م**
+            - ثقة المحرك الذكي: **{res['confidence']}%**
+            - الاتجاه العام: **{res['trend']}**
+            """)
+        
+        with col2:
+            st.markdown(f"""
+            **🎯 الأهداف المقترحة (حسابات ATR):**
+            - المستهدف الأول: **{res['target']:.2f} ج.م**
+            - وقف الخسارة: **{res['sl']:.2f} ج.م**
+            - بصمة السيولة (FVG): **{'مرصودة ✅' if res['fvg'] == 1 else 'غير واضحة ❌'}**
+            """)
+
+        # تحليل "خلف الكواليس"
+        st.write("---")
+        st.markdown(f"**🧠 رؤية AI العميقة:** السهم حالياً يتحرك بزخم (RSI: {res['rsi']:.2f}). النموذج الرقمي 27 يرى أن نسبة المخاطرة مقابل العائد في هذه اللحظة تعتبر {'مغرية' if res['confidence'] > 60 else 'غير متكافئة'}.")
+    else:
+        st.error("فشل في جلب البيانات الاستشارية. تأكد من كود السهم.")
+
+st.caption("⚠️ هذا النظام هو محرك ذكاء اصطناعي مسيطر؛ الاستشارات مبنية على احتمالات إحصائية رقمية صرفة.")
