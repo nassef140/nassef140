@@ -7,114 +7,89 @@ from sklearn.ensemble import RandomForestClassifier
 from datetime import datetime
 import pytz
 
-# --- [1. الإعدادات والواجهة] ---
-st.set_page_config(page_title="AI Zara Elite Radar", layout="wide")
+# --- [1. الإعدادات] ---
+st.set_page_config(page_title="AI Zara - Risk Analyzer", layout="wide")
 cairo_tz = pytz.timezone('Africa/Cairo')
-cairo_now = datetime.now(cairo_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-st.title("🦅 المحرك المسيطر - تقرير النخبة الفني")
-st.markdown(f"**📍 توقيت القاهرة:** `{cairo_now}`")
+st.title("🦅 محرك زارا - مقيم المخاطر الذكي")
 st.write("---")
 
-# --- [2. شريط التحكم اللحظي] ---
-col_search, col_price, col_btn = st.columns([2, 2, 1])
-with col_search:
-    ticker_input = st.text_input("🔍 أدخل كود السهم (مثال: LCSW, COMI):", "LCSW")
-with col_price:
-    manual_price = st.number_input("✍️ تصحيح السعر (أدخل السعر الحقيقي الآن):", value=0.0, format="%.2f")
-with col_btn:
+# --- [2. التحكم] ---
+col_t, col_p, col_b = st.columns([2, 2, 1])
+with col_t: ticker_input = st.text_input("كود السهم:", "LCSW")
+with col_p: manual_price = st.number_input("السعر الحقيقي الآن:", value=0.0, format="%.2f")
+with col_b: 
     st.write(" ")
-    run_btn = st.button("🚀 تحليل عميق")
+    run_btn = st.button("🚀 تحليل وتحكم")
 
-def run_elite_engine(symbol_raw, m_price):
+def run_risk_engine(symbol_raw, m_price):
     try:
         symbol = f"{symbol_raw.upper().strip()}.CA"
-        # جلب البيانات التاريخية
         df = yf.download(symbol, period="300d", interval="1d", auto_adjust=True, progress=False)
-        if df.empty: return {"error": "تعذر جلب البيانات."}
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
-        # دمج السعر اللحظي (زارا) لتصحيح البيانات
         current_price = m_price if m_price > 0 else df['Close'].iloc[-1]
-        if current_price != df['Close'].iloc[-1]:
-            new_row = pd.DataFrame({
-                'Open': [current_price], 'High': [current_price], 
-                'Low': [current_price], 'Close': [current_price], 'Volume': [0]
-            }, index=[pd.Timestamp.now(tz=cairo_tz)])
-            df = pd.concat([df, new_row])
-
-        # --- [المحرك التقني: SMC + Momentum] ---
-        # 1. سيولة المؤسسات (FVG & BOS)
-        df['FVG'] = np.where((df['Low'] > df['High'].shift(2)), 1, np.where((df['High'] < df['Low'].shift(2)), -1, 0))
-        df['BOS'] = np.where(df['Close'] > df['High'].rolling(10).max().shift(1), 1, 0)
         
-        # 2. تحليل الزخم والسيولة
-        df.ta.macd(append=True)
-        macd_h = [c for c in df.columns if 'MACDh' in c][0]
-        rsi = ta.rsi(df['Close'], length=14)
-        vol_ratio = df['Volume'].iloc[-1] / df['Volume'].rolling(20).mean().iloc[-1] if df['Volume'].rolling(20).mean().iloc[-1] > 0 else 1
+        # حقن السعر اللحظي
+        if current_price != df['Close'].iloc[-1]:
+            new_data = pd.DataFrame({'Open':[current_price],'High':[current_price],'Low':[current_price],'Close':[current_price],'Volume':[0]}, index=[pd.Timestamp.now(tz=cairo_tz)])
+            df = pd.concat([df, new_data])
 
-        # 3. مستويات فيبوناتشي (الدورة السعرية)
+        # حساب SMC و فيبوناتشي
+        df['FVG'] = np.where((df['Low'] > df['High'].shift(2)), 1, np.where((df['High'] < df['Low'].shift(2)), -1, 0))
         h_max, l_min = df['High'].tail(100).max(), df['Low'].tail(100).min()
         fib_entry = l_min + (h_max - l_min) * 0.618
         
-        # --- [المحرك الذكي: AI Training] ---
+        # --- [جديد: حساب نسبة المخاطرة للعائد] ---
+        potential_profit = h_max - current_price
+        potential_loss = current_price - (l_min * 0.98)
+        rr_ratio = potential_profit / potential_loss if potential_loss > 0 else 0
+
+        # AI
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-        features = ['FVG', 'BOS', macd_h]
         clean = df.dropna()
         model = RandomForestClassifier(n_estimators=100, random_state=27)
-        model.fit(clean[features][:-1], clean['Target'][:-1])
-        
-        accuracy = model.score(clean[features][-30:], clean['Target'][-30:]) * 100
-        prob = model.predict_proba(clean[features].iloc[[-1]])[0][1]
+        model.fit(clean[['FVG']][:-1], clean['Target'][:-1])
+        prob = model.predict_proba(clean[['FVG']].iloc[[-1]])[0][1]
 
         return {
-            "symbol": symbol, "price": current_price, "change": ((current_price - df['Close'].iloc[-2])/df['Close'].iloc[-2])*100,
-            "confidence": round(prob * 100, 1), "accuracy": round(accuracy, 1),
-            "fvg": df['FVG'].iloc[-1], "rsi": rsi.iloc[-1], "vol_ratio": vol_ratio,
-            "entry": fib_entry, "target": h_max, "stop": l_min * 0.98
+            "price": current_price, "confidence": round(prob * 100, 1),
+            "fvg": df['FVG'].iloc[-1], "entry": fib_entry, "target": h_max, 
+            "stop": l_min * 0.98, "rr_ratio": round(rr_ratio, 2)
         }
     except Exception as e: return {"error": str(e)}
 
 if run_btn:
-    with st.spinner('جاري مزامنة الاستراتيجيات الرقمية...'):
-        res = run_elite_engine(ticker_input, manual_price)
-    
+    res = run_risk_engine(ticker_input, manual_price)
     if "error" not in res:
-        # --- [3. عرض حالة السهم] ---
-        p_color = "green" if res['change'] >= 0 else "red"
-        st.subheader(f"📊 تقرير الأداء: {res['symbol']}")
-        st.markdown(f"**السعر الحالي:** `{res['price']:.2f} ج.م` | **التغيير:** <span style='color:{p_color}'>{res['change']:.2f}%</span>", unsafe_allow_html=True)
+        # عرض النتائج
+        st.subheader(f"📊 تقرير المخاطرة والفرص: {ticker_input}")
+        
+        # تصميم بطاقة نسبة المخاطرة
+        rr = res['rr_ratio']
+        rr_color = "green" if rr >= 2 else "orange" if rr >= 1.5 else "red"
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("السعر المعتمد", f"{res['price']:.2f}")
+        c2.metric("نسبة المخاطرة للعائد", f"1 : {rr}", delta=f"{'ممتازة' if rr>=2 else 'ضعيفة'}")
+        c3.metric("ثقة المحرك", f"{res['confidence']}%")
+
         st.write("---")
 
-        # --- [4. رادار الاستراتيجية الرقمية] ---
-        st.subheader("🤖 أولاً: نتائج الاستراتيجية الرقمية (SMC/AI)")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("ثقة المحرك", f"{res['confidence']}%")
-        c2.metric("الدقة التاريخية", f"{res['accuracy']}%")
-        c3.metric("بصمة المؤسسات", "إيجابية ✅" if res['fvg'] == 1 else "سلبية ❌" if res['fvg'] == -1 else "هادئة")
-        c4.metric("حجم التداول", "مرتفع 🔥" if res['vol_ratio'] > 1.2 else "طبيعي")
-        st.write("---")
-
-        # --- [5. تقرير المحلل الفني] ---
-        st.subheader("🖋️ ثانياً: تقرير المحلل الفني")
-        if res['confidence'] >= 65 and res['price'] <= res['entry']:
-            stance, s_color = "🔵 تجميع شراء (Discount Zone)", "blue"
-            opinion = f"السهم يتداول في منطقة خصم مثالية تحت {res['entry']:.2f}. توافق SMC مع الذكاء الاصطناعي يعطي أفضلية كبيرة للارتداد الصاعد."
-        elif res['rsi'] > 75 or res['price'] >= res['target'] * 0.98:
-            stance, s_color = "🔴 جني أرباح / خطر", "red"
-            opinion = f"السعر دخل مناطق التشبع والاقتراب من المستهدف الرئيسي {res['target']:.2f}. الدخول هنا يرفع نسبة المخاطرة بشكل كبير."
+        # تقرير المحلل الفني المتكامل
+        st.subheader("🖋️ تقرير المحلل الفني")
+        
+        quality = "عالية الجودة" if rr >= 2 and res['confidence'] >= 65 else "متوسطة" if rr >= 1.5 else "عالية المخاطرة"
+        
+        opinion = f"الصفقة الحالية تعتبر **{quality}**. "
+        if rr < 1.5:
+            opinion += f"الربح المتوقع ({res['target']:.2f}) قريب جداً من السعر الحالي مقارنة بوقف الخسارة البعيد. لا ننصح بالدخول هنا."
         else:
-            stance, s_color = "🟡 مراقبة (Neutral)", "orange"
-            opinion = "السعر في منطقة توازن حيادية. يفضل انتظار تصحيح لمستويات الفيبوناتشي أو ظهور بصمة سيولة مؤسسية جديدة."
+            opinion += f"العائد المتوقع يساوِي {rr} ضعف المخاطرة، مما يجعلها صفقة منطقية حسابياً."
 
-        st.markdown(f"### **القرار:** <span style='color:{s_color}'>{stance}</span>", unsafe_allow_html=True)
-        st.info(f"💡 **التحليل العميق:** {opinion}")
+        st.info(f"**القرار:** {'🔵 تجميع' if rr >= 1.5 else '🟡 مراقبة'}\n\n**التحليل:** {opinion}")
 
-        # --- [6. خريطة الأهداف] ---
-        st.markdown("### **🎯 المستهدفات السعرية الرقمية:**")
-        col_in, col_out, col_stop = st.columns(3)
-        col_in.success(f"📍 نقطة الدخول الذهبية: {res['entry']:.2f}")
-        col_out.info(f"🚀 المستهدف الأول: {res['target']:.2f}")
-        col_stop.error(f"🛡️ وقف الخسارة: {res['stop']:.2f}")
-    else: st.error(f"حدث خطأ: {res['error']}")
+        # المستهدفات
+        st.success(f"📍 نقطة الدخول الذهبية: {res['entry']:.2f}")
+        st.info(f"🚀 المستهدف (الربح): {res['target']:.2f}")
+        st.error(f"🛡️ وقف الخسارة: {res['stop']:.2f}")
