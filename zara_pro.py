@@ -3,28 +3,26 @@ import yfinance as yf
 import pandas as pd
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 # --- [1. إعدادات المنظومة] ---
-st.set_page_config(page_title="Zara Pro - Safe Sync Edition", layout="wide")
+st.set_page_config(page_title="Zara Pro - Cairo Final", layout="wide")
 CAIRO_TZ = pytz.timezone('Africa/Cairo')
-DATA_FILE = "zara_market_db.csv"
+DATA_FILE = "zara_cairo_db.csv"
 
-# القائمة الشاملة (مثال للتشغيل - يمكنك توسيعها لـ 200 سهم)
+# القائمة الشاملة (أضف بقية الـ 200 سهم هنا)
 TICKER_DB = {
     "ARCC.CA": "العربية للأسمنت", "UNIT.CA": "المتحدة للإسكان", "LCSW.CA": "ليسكو مصر",
     "ACGC.CA": "حليج الأقطان", "ASCM.CA": "أسيك للتعدين", "AJWA.CA": "أجواء",
     "RMDA.CA": "راميدا", "ISPH.CA": "ابن سينا فارما", "EGAL.CA": "مصر للألومنيوم",
     "CCAP.CA": "القلعة", "RAYA.CA": "راية القابضة", "TAQA.CA": "طاقة عربية",
-    "ALCN.CA": "الاسكندرية للحاويات", "DSMC.CA": "الدلتا للسكر", "MPRC.CA": "مدينة الإنتاج الإعلامي",
-    "ATQA.CA": "مصر الوطنية للصلب", "DAPH.CA": "مطاحن وسط وغرب", "AMER.CA": "عامر جروب",
-    "PORT.CA": "بورتو جروب", "ELSH.CA": "الشمس للإسكان", "EEII.CA": "المصرية للاستثمار"
+    "ALCN.CA": "الاسكندرية للحاويات", "DSMC.CA": "الدلتا للسكر", "MPRC.CA": "مدينة الإنتاج الإعلامي"
 }
 
 EGX30_LIST = ["COMI.CA", "FWRY.CA", "SWDY.CA", "TMGH.CA", "ABUK.CA", "MFPC.CA", "ETEL.CA"]
 
-# --- [2. محرك التحديث بنظام المجموعات والراحة 30 ثانية] ---
+# --- [2. وظيفة التحديث بنظام المجموعات والراحة 30 ثانية] ---
 def refresh_database_safe():
     all_stocks = {**TICKER_DB, **{k: "قيادي" for k in EGX30_LIST}}
     storage = []
@@ -42,15 +40,13 @@ def refresh_database_safe():
         batch = tickers[i:i + batch_size]
         for idx, (sym, name) in enumerate(batch):
             current_idx = i + idx
-            status_text.text(f"⏳ جاري معالجة: {sym} ({name}) - {current_idx + 1}/{total}")
+            status_text.text(f"⏳ جاري جلب: {sym} ({name}) - {current_idx + 1}/{total}")
             try:
-                # جلب بيانات 21 يوم تداول (نطلب شهر لضمان الاكتمال)
                 df = yf.download(sym, period="1mo", interval="1h", progress=False)
                 if not df.empty and len(df) >= 21:
                     if isinstance(df.columns, pd.MultiIndex): 
                         df.columns = df.columns.get_level_values(0)
-                    
-                    df_calc = df.tail(21 * 7) # تحليل 21 يوم عمل
+                    df_calc = df.tail(21 * 7)
                     
                     curr = float(df_calc['Close'].iloc[-1])
                     h_max = float(df_calc['High'].max())
@@ -64,20 +60,19 @@ def refresh_database_safe():
             except: continue
             progress_bar.progress((current_idx + 1) / total)
         
-        # تنفيذ التوقف لمدة 30 ثانية بين كل مجموعة (إلا المجموعة الأخيرة)
         if i + batch_size < total:
             for remaining in range(30, 0, -1):
-                timer_text.warning(f"☕ استراحة أمان للسيرفر.. سنكمل بعد {remaining} ثانية...")
+                timer_text.warning(f"☕ استراحة أمان للسيرفر لمنع الحظر.. متبقي {remaining} ثانية...")
                 time.sleep(1)
             timer_text.empty()
 
     if storage:
         pd.DataFrame(storage, columns=['Symbol', 'Name', 'Price', 'High', 'Low', 'FVG', 'Open', 'LastUpdate']).to_csv(DATA_FILE, index=False)
-        st.success("✅ تمت المزامنة بنجاح! تم حفظ البيانات وتحديث خريطة التداول.")
+        st.success("✅ تمت المزامنة بنجاح!")
         time.sleep(2)
         st.rerun()
 
-# --- [3. محرك التحليل والواجهة] ---
+# --- [3. محرك التحليل] ---
 def get_analysis(symbol):
     if not os.path.exists(DATA_FILE): return None
     try:
@@ -98,43 +93,41 @@ def get_analysis(symbol):
         if bool(r['FVG']): score += 20
         if curr > float(r['Open']): score += 10
         
-        return {"الترتيب": 0, "الرمز": r['Symbol'].split(".")[0], "الاسم": r['Name'], "القوة": score, "السعر": curr, "م:ع": f"1:{rr}", "SMC": "✅" if bool(r['FVG']) else "⚠️", "Target": target, "Stop": stop, "Fib": round(fib_618, 2)}
+        return {"الرمز": r['Symbol'].split(".")[0], "الاسم": r['Name'], "القوة": score, "السعر": curr, "م:ع": f"1:{rr}", "SMC": "✅" if bool(r['FVG']) else "⚠️", "Target": target, "Stop": stop}
     except: return None
 
-# الواجهة الرئيسية
-st.title("🛡️ منظومة زارا برو - رادار الأمان والاستقرار")
+# --- [4. الواجهة الرئيسية] ---
+st.title("🦅 منظومة زارا برو - الإصدار المُصلح كلياً")
 
 if os.path.exists(DATA_FILE):
     df_temp = pd.read_csv(DATA_FILE)
     if not df_temp.empty:
         last_up = df_temp['LastUpdate'].iloc[0].split(' ')[1]
         st.sidebar.info(f"🕒 آخر مزامنة (القاهرة): {last_up}")
-    if st.sidebar.button("🔄 تحديث شامل (نظام الدفعات)"):
+    if st.sidebar.button("🔄 تحديث شامل (آمن)"):
         refresh_database_safe()
 else:
-    st.warning("⚠️ قاعدة البيانات غير موجودة. اضغط للتأسيس.")
-    if st.button("🆕 تأسيس قاعدة البيانات (Safe Sync)"):
+    st.warning("⚠️ قاعدة البيانات غير موجودة. يرجى الضغط على الزر أدناه لبنائها.")
+    if st.button("🆕 تأسيس قاعدة البيانات (Safe Batch Sync)"):
         refresh_database_safe()
 
-tab1, tab2 = st.tabs(["🚀 مسح الـ 50 الأقوى (EGX 70/100)", "🔍 تقرير خريطة الطريق التفصيلي"])
+tab1, tab2 = st.tabs(["🚀 المسح الشامل والترتيب", "🔍 التحليل التفصيلي"])
 
 with tab1:
-    if st.button("🏁 تشغيل المسح والترتيب التنازلي"):
+    if st.button("🏁 ابدأ المسح (21 يوم)"):
         results = [get_analysis(s) for s in TICKER_DB.keys() if get_analysis(s)]
         if results:
             df_final = pd.DataFrame(results).sort_values(by="القوة", ascending=False).reset_index(drop=True)
             df_final.insert(0, 'الترتيب', range(1, len(df_final) + 1))
-            st.subheader("📊 قائمة النخبة المرتبة (أعلى 50 سهم)")
             st.table(df_final[["الترتيب", "الرمز", "الاسم", "القوة", "السعر", "م:ع", "SMC"]].head(50))
         else:
-            st.error("لا توجد بيانات للتحليل. يرجى المزامنة أولاً.")
+            st.info("لا توجد بيانات حالياً. اضغط على 'تأسيس قاعدة البيانات' أولاً.")
 
 with tab2:
-    code = st.text_input("أدخل رمز السهم (مثال: UNIT):").upper().strip()
-    if st.button("📊 توليد التقرير") and code:
+    code = st.text_input("أدخل الرمز (مثل UNIT):").upper().strip()
+    if st.button("📊 إصدار تقرير") and code:
         res = get_analysis(f"{code}.CA")
         if res:
-            st.markdown(f"### 🖋️ خريطة الطريق لـ {res['الاسم']}")
-            st.success(f"المستهدف الرئيسي: {res['Target']} | وقف الخسارة: {res['Stop']} | القوة: {res['القوة']}%")
+            st.success(f"الهدف: {res['Target']} | الوقف: {res['Stop']} | القوة: {res['القوة']}%")
         else:
-            st.error("السهم غير موجود في قاعدة البيانات الحالية.")
+            st.error("السهم غير موجود.")
