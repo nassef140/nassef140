@@ -1,0 +1,6 @@
+pyTelegramBotAPI
+yfinance
+pandas
+numpy
+pandas_ta
+scikit-learn
