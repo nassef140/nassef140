@@ -6,89 +6,87 @@ import pandas_ta as ta
 from sklearn.ensemble import RandomForestClassifier
 import plotly.graph_objects as go
 
-# إعدادات الصفحة
-st.set_page_config(page_title="رادار البورصة المصرية الذكي", layout="wide")
+st.set_page_config(page_title="AI Stock Alpha", layout="wide")
 
-st.title("🧠 نظام تحليل الأسهم بالذكاء الاصطناعي")
-st.write("تحليل معتمد على بصمة المؤسسات (FVG) والمعامل الرقمي 27")
+st.title("🤖 محرك الذكاء الاصطناعي المسيطر للبورصة المصرية")
+st.write("القرار هنا يُتخذ بواسطة خوارزمية التعلم الآلي التي تحلل أنماط السيولة والزخم.")
 
-# مدخلات المستخدم
-ticker = st.text_input("أدخل رمز السهم (مثال: COMI, FAWR, EAST):", "COMI")
+ticker = st.text_input("أدخل رمز السهم للتحليل العميق:", "COMI")
 
-CALC_FACTOR = 27
-
-def analyze_stock(symbol_input):
+def ai_dominant_analysis(symbol_input):
     try:
         symbol = f"{symbol_input.upper().strip()}.CA"
-        df = yf.download(symbol, period="150d", interval="4h", progress=False)
+        # جلب بيانات موسعة لتدريب النموذج
+        df = yf.download(symbol, period="200d", interval="1d", progress=False)
         
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        if df.empty or len(df) < CALC_FACTOR:
-            st.error("بيانات غير كافية لهذا السهم.")
+        if df.empty or len(df) < 50:
             return None
 
-        # 1. بصمة المؤسسات (FVG)
-        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
-
-        # 2. التحليل الرقمي (MACD)
+        # --- تحضير البيانات للذكاء الاصطناعي ---
+        df['RSI'] = ta.rsi(df['Close'], length=14)
         df.ta.macd(append=True)
-        macd_col = [c for c in df.columns if 'MACDh' in c][0]
-
-        # 3. فيبوناتشي
-        hi, lo = float(df['High'].max()), float(df['Low'].min())
-        curr_p = float(df['Close'].iloc[-1])
-        fib_618 = hi - (0.618 * (hi - lo))
-
-        # 4. محرك الذكاء الاصطناعي
+        df['EMA_20'] = ta.ema(df['Close'], length=20)
+        df['FVG'] = np.where(df['Low'] > df['High'].shift(2), 1, 0)
+        
+        # تحديد الهدف: هل سيصعد السعر في اليوم التالي؟
         df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
-        clean_df = df.dropna()
-        X = clean_df[[macd_col, 'FVG']]
-        y = clean_df['Target']
         
-        model = RandomForestClassifier(n_estimators=CALC_FACTOR, random_state=42)
-        model.fit(X[:-1], y[:-1])
+        # تنظيف البيانات
+        features = ['RSI', 'EMA_20', 'FVG']
+        # إضافة أعمدة الماكد ديناميكياً
+        macd_cols = [c for c in df.columns if 'MACD' in c]
+        features.extend(macd_cols)
         
-        prob = model.predict_proba(X.iloc[[-1]])[0][1]
-        power = round(prob * 100, 1)
+        data_clean = df.dropna()
+        X = data_clean[features]
+        y = data_clean['Target']
 
-        return df, curr_p, fib_618, power, symbol
+        # --- تدريب محرك القرار (Random Forest) ---
+        # المعامل الرقمي 27 يستخدم هنا كقاعدة لبناء الغابة العشوائية
+        model = RandomForestClassifier(n_estimators=100, random_state=27)
+        model.fit(X[:-1], y[:-1])
+
+        # التنبؤ بالحالة القادمة
+        current_features = X.iloc[[-1]]
+        prediction_prob = model.predict_proba(current_features)[0][1]
+        ai_confidence = round(prediction_prob * 100, 2)
+
+        return df, ai_confidence, symbol, model, features
 
     except Exception as e:
-        st.error(f"حدث خطأ: {e}")
+        st.error(f"Error: {e}")
         return None
 
 if ticker:
-    result = analyze_stock(ticker)
-    if result:
-        df, curr_p, fib_618, power, full_symbol = result
+    res = ai_dominant_analysis(ticker)
+    if res:
+        df, confidence, full_name, model, feature_names = res
         
-        # عرض النتائج في أعمدة
-        col1, col2, col3 = st.columns(3)
+        # عرض "عقل" الذكاء الاصطناعي
+        col1, col2 = st.columns([1, 2])
+        
         with col1:
-            st.metric("السعر الحالي", f"{curr_p:.2f} ج.م")
+            st.metric("ثقة الذكاء الاصطناعي بالصعود", f"{confidence}%")
+            if confidence > 60:
+                st.success("🤖 القرار: شراء - النمط إيجابي جداً")
+            elif confidence < 40:
+                st.error("🤖 القرار: بيع/تجنب - النمط سلبي")
+            else:
+                st.warning("🤖 القرار: منطقة حيرة - النمط غير مكتمل")
+
         with col2:
-            st.metric("قوة التنبؤ الذكي", f"{power}%")
-        with col3:
-            st.metric("مستوى الخصم (0.618)", f"{fib_618:.2f}")
+            # أهمية المؤشرات بالنسبة للذكاء الاصطناعي
+            importances = model.feature_importances_
+            feat_imp = pd.Series(importances, index=feature_names).sort_values()
+            st.write("📊 ترتيب المؤشرات حسب تأثيرها على قرار الـ AI حالياً:")
+            st.bar_chart(feat_imp)
 
-        # تحديد التوصية
-        if power >= 65 and curr_p <= fib_618:
-            st.success("🏁 القرار النهائي: شراء قوي (تمركز مؤسسات)")
-        elif power >= 50:
-            st.warning("🏁 القرار النهائي: مراقبة وانتظار سيولة")
-        else:
-            st.error("🏁 القرار النهائي: خطر / بيع محتمل")
-
-        # رسم بياني تفاعلي
-        fig = go.Figure(data=[go.Candlestick(x=df.index,
-                open=df['Open'], high=df['High'],
-                low=df['Low'], close=df['Close'], name="السعر")])
-        
-        fig.add_hline(y=fib_618, line_dash="dash", line_color="green", annotation_text="منطقة الخصم")
-        fig.update_layout(title=f"الرسم البياني لسهم {full_symbol}", xaxis_rangeslider_visible=False)
+        # الرسم البياني
+        fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
+        fig.update_layout(title=f"تحليل المسار الذكي لـ {full_name}")
         st.plotly_chart(fig, use_container_width=True)
 
-        st.write("---")
-        st.info("💡 ملاحظة: هذا التحليل يعتمد على خوارزمية 'الغابة العشوائية' مع مراعاة فجوات السيولة المؤسسية.")
+        st.info(f"💡 الذكاء الاصطناعي قام بمعالجة {len(df)} يوم تداول لاتخاذ هذا القرار.")
