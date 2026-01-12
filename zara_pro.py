@@ -1,145 +1,121 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import os
-import time
-from datetime import datetime, timedelta
+import numpy as np
 
-# --- [1. إعدادات المنظومة والقاموس] ---
-st.set_page_config(page_title="Zara Pro - Sniper Edition", layout="wide")
-
-# القائمة المستهدفة للمسح (EGX 70/100)
+# --- [1. قاعدة بيانات الأسهم الشاملة] ---
 TICKER_DB = {
-    "ARCC.CA": "العربية للأسمنت", "UNIT.CA": "المتحدة للإسكان", "LCSW.CA": "ليسكو مصر",
-    "ACGC.CA": "حليج الأقطان", "ASCM.CA": "أسيك للتعدين", "AJWA.CA": "أجواء",
-    "RMDA.CA": "راميدا", "ISPH.CA": "ابن سينا فارما", "EGAL.CA": "مصر للألومنيوم",
-    "CCAP.CA": "القلعة", "RAYA.CA": "راية القابضة", "TAQA.CA": "طاقة عربية",
-    "ALCN.CA": "الاسكندرية للحاويات", "DSMC.CA": "الدلتا للسكر", "MPRC.CA": "مدينة الإنتاج الإعلامي"
+    "CIEB.CA": "كريدي أجريكول", "LCSW.CA": "ليسكو مصر", "ABUK.CA": "أبو قير للأسمدة",
+    "ADIB.CA": "مصرف أبوظبي الإسلامي", "FWRY.CA": "فوري", "SWDY.CA": "السويدي إليكتريك",
+    "PHDC.CA": "بالم هيلز", "TMGH.CA": "طلعت مصطفى", "COMI.CA": "التجاري الدولي",
+    "MFPC.CA": "موبكو للأسمدة", "ETEL.CA": "المصرية للاتصالات", "AMOC.CA": "أموك للزيوت",
+    "HELI.CA": "مصر الجديدة", "MNHD.CA": "مدينة مصر", "SKPC.CA": "سيدي كرير",
+    "CCAP.CA": "القلعة", "EGAL.CA": "مصر للألومنيوم", "EMFD.CA": "إعمار مصر",
+    "GBCO.CA": "جي بي أوتو", "ISPH.CA": "ابن سينا فارما", "RMDA.CA": "راميدا",
+    "TAQA.CA": "طاقة عربية", "RAYA.CA": "راية القابضة", "ASCM.CA": "أسيك للتعدين",
+    "EKHO.CA": "القابضة الكويتية", "ESRS.CA": "عز الدخيلة", "ORAS.CA": "أوراسكوم للإنشاء"
+    # القائمة تدعم حتى 200 سهم بنفس النمط
 }
 
-# قائمة EGX30 (تُحفظ في الملف للتحليل ولا تظهر في مسح الـ 50)
-EGX30_LIST = ["COMI.CA", "FWRY.CA", "SWDY.CA", "TMGH.CA", "ABUK.CA", "MFPC.CA", "ETEL.CA"]
-
-DATA_FILE = "zara_market_data.csv"
-
-# --- [2. وظيفة تحديث البيانات وحماية من الحظر] ---
-def refresh_database():
-    all_stocks = {**TICKER_DB, **{k: "قيادي (EGX30)" for k in EGX30_LIST}}
-    storage = []
-    
-    st.write("🔄 جاري الاتصال بالبورصة وتأسيس ملف البيانات...")
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    tickers = list(all_stocks.items())
-    for idx, (sym, name) in enumerate(tickers):
-        status_text.text(f"⏳ جاري جلب بيانات: {sym}")
-        try:
-            # الالتزام الصارم ببيانات 21 يوم عمل (نطلب شهر لضمان الاكتمال)
-            df = yf.download(sym, period="1mo", interval="1h", progress=False)
-            if not df.empty and len(df) >= 21:
-                if isinstance(df.columns, pd.MultiIndex): 
-                    df.columns = df.columns.get_level_values(0)
-                
-                df_21 = df.tail(21 * 7) # تحليل 21 يوم تداول فعلي
-                
-                curr = float(df_21['Close'].iloc[-1])
-                h_max = float(df_21['High'].max())
-                l_min = float(df_21['Low'].min())
-                fvg = 1 if (len(df_21) > 3 and df_21['Low'].iloc[-1] > df_21['High'].iloc[-3]) else 0
-                open_p = float(df_21['Open'].iloc[-1])
-                
-                storage.append([sym, name, curr, h_max, l_min, fvg, open_p, datetime.now()])
-                # إضافة فترة راحة بسيطة جداً لتجنب البلوك
-                time.sleep(0.2)
-        except Exception as e:
-            continue
-        progress_bar.progress((idx + 1) / len(tickers))
-    
-    if storage:
-        pd.DataFrame(storage, columns=['Symbol', 'Name', 'Price', 'High', 'Low', 'FVG', 'Open', 'LastUpdate']).to_csv(DATA_FILE, index=False)
-        st.success("✅ تم تحديث ملف البيانات بنجاح! يمكنك البدء بالمسح الآن.")
-        time.sleep(1)
-        st.rerun()
-
-# --- [3. محرك الاستراتيجية (القراءة من الملف المحلي)] ---
-def analyze_from_cache(symbol):
-    if not os.path.exists(DATA_FILE): return None
+# --- [2. محرك التحليل الاحترافي] ---
+def run_zara_engine(ticker, name):
     try:
-        db = pd.read_csv(DATA_FILE)
-        row = db[db['Symbol'] == symbol]
-        if row.empty: return None
+        df = yf.download(ticker, period="30d", interval="1h", progress=False)
+        if df.empty or len(df) < 10: return None
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+
+        curr = df['Close'].iloc[-1]
+        h_max, l_min = df['High'].max(), df['Low'].min()
         
-        r = row.iloc[0]
-        curr, h_max, l_min = float(r['Price']), float(r['High']), float(r['Low'])
-        fvg = bool(r['FVG'])
-        
-        # استراتيجية زارا (21 يوم)
+        # استراتيجية SMC & Fibonacci
         fib_618 = l_min + (h_max - l_min) * 0.618
-        stop = round(l_min * 0.985, 2)
-        target = round(h_max, 2)
-        rr = round((target - curr) / (curr - stop), 2) if (curr - stop) > 0 else 0
+        fvg_detected = (df['Low'].iloc[-1] > df['High'].iloc[-3])
         
+        # الأهداف الاستراتيجية
+        target_1 = curr + (h_max - curr) * 0.5
+        target_2 = h_max
+        target_3 = h_max * 1.15 # مستهدف امتداد
+        stop_loss = l_min * 0.982
+        
+        rr_ratio = round((target_2 - curr) / (curr - stop_loss), 2) if (curr - stop_loss) > 0 else 0
+
+        # نظام التنقيط
         score = 0
         if curr <= fib_618: score += 40
-        if rr >= 2: score += 30
-        if fvg: score += 20
-        if curr > float(r['Open']): score += 10
-        
+        if rr_ratio >= 2: score += 30
+        if fvg_detected: score += 20
+        if curr > df['Open'].iloc[-1]: score += 10
+
         return {
-            "الرمز": r['Symbol'].split(".")[0], "الاسم": r['Name'], "القوة": score,
-            "السعر": curr, "م:ع": f"1:{rr}", "SMC": "✅" if fvg else "⚠️",
-            "Target": target, "Stop": stop, "Fib": round(fib_618, 2),
-            "T1": round(curr + (target - curr) * 0.5, 2), "T3": round(target * 1.15, 2)
+            "symbol": ticker.split(".")[0], "name": name, "price": round(curr, 2),
+            "score": score, "target1": round(target_1, 2), "target2": round(target_2, 2),
+            "target3": round(target_3, 2), "stop": round(stop_loss, 2),
+            "rr": rr_ratio, "fvg": fvg_detected, "fib": round(fib_618, 2),
+            "volatility": "عالية" if (h_max/l_min) > 1.1 else "مستقرة"
         }
     except: return None
 
-# --- [4. الواجهة والتحكم] ---
-st.title("🦅 رادار زارا الاحترافي - نسخة الملف الذكي")
+# --- [3. الواجهة الرسومية الغنية بالمعلومات] ---
+st.set_page_config(page_title="Zara AI - Pro Analysis", layout="wide")
+st.title("🦅 منظومة زارا للتحليل الاستراتيجي | EGX 200")
 
-# منطق الملف والتحديث التلقائي/اليدوي
-if os.path.exists(DATA_FILE):
-    last_mod = datetime.fromtimestamp(os.path.getmtime(DATA_FILE))
-    st.sidebar.info(f"📅 تحديث الملف: {last_mod.strftime('%H:%M:%S')}")
-    if st.sidebar.button("🔄 تحديث البيانات (Refresh)"):
-        refresh_database()
-else:
-    st.warning("⚠️ ملف البيانات غير موجود.")
-    if st.button("🆕 إنشاء وتأسيس قاعدة البيانات"):
-        refresh_database()
+t1, t2 = st.tabs(["🎯 قناص النخبة (ترتيب الأفضلية)", "🖋️ تقرير خريطة الطريق التفصيلي"])
 
-tab1, tab2 = st.tabs(["🚀 مسح الـ 50 الأوائل (EGX 70/100)", "🔍 تقرير خريطة الطريق التفصيلي"])
+with t1:
+    st.subheader("أفضل 25 سهم متوافق مع الاستراتيجية")
+    if st.button("🚀 بدء المسح الشامل والترتيب"):
+        results = []
+        bar = st.progress(0)
+        items = list(TICKER_DB.items())
+        for idx, (sym, name) in enumerate(items):
+            res = run_zara_engine(sym, name)
+            if res: results.append(res)
+            bar.progress((idx + 1) / len(items))
+        
+        top_25 = sorted(results, key=lambda x: x['score'], reverse=True)[:25]
+        if top_25:
+            st.table(pd.DataFrame([{
+                "الترتيب": i+1, "السهم": f"{r['symbol']} ({r['name']})", 
+                "القوة": f"{r['score']}%", "السعر": r['price'], "م:ع": f"1:{r['rr']}",
+                "الحالة": "دخول ذهبي 🚀" if r['score'] >= 85 else "تجميع 🔵"
+            } for i, r in enumerate(top_25)]))
 
-with tab1:
-    if st.button("🏁 ابدأ المسح والترتيب التنازلي"):
-        if not os.path.exists(DATA_FILE):
-            st.error("يرجى إنشاء ملف البيانات أولاً.")
-        else:
-            results = []
-            for sym in TICKER_DB.keys():
-                res = analyze_from_cache(sym)
-                if res: results.append(res)
-            
-            if results:
-                df = pd.DataFrame(results).sort_values(by="القوة", ascending=False).reset_index(drop=True)
-                df.insert(0, 'الترتيب', range(1, len(df) + 1))
-                st.subheader("📊 قائمة النخبة المرتبة بدقة")
-                st.table(df[["الترتيب", "الرمز", "الاسم", "القوة", "السعر", "م:ع", "SMC"]].head(50))
-
-with tab2:
-    code = st.text_input("أدخل رمز السهم (مثال: ARCC):").upper().strip()
-    if st.button("📊 توليد تقرير خريطة الطريق") and code:
-        res = analyze_from_cache(f"{code}.CA")
+with t2:
+    st.subheader("🔍 استخراج تقرير معمق للسهم")
+    col_search, _ = st.columns([2, 2])
+    with col_search:
+        code = st.text_input("أدخل رمز السهم (مثال: LCSW):").upper().strip()
+    
+    if st.button("📊 إنشاء التقرير الغني") and code:
+        res = run_zara_engine(f"{code}.CA", TICKER_DB.get(f"{code}.CA", "سهم مصري"))
         if res:
-            st.markdown(f"### 📽️ خريطة الطريق لـ {res['الاسم']}")
-            st.write("---")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("السعر الحالي", f"{res['السعر']} ج.م")
-            c2.metric("المستهدف الرئيسي", f"{res['Target']} ج.م")
-            c3.metric("وقف الخسارة", f"{res['Stop']} ج.م")
-            c4.metric("هدف بعيد", f"{res['T3']} ج.م")
+            st.markdown(f"## 🖋️ تقرير خريطة الطريق: {res['symbol']} ({res['name']})")
+            st.markdown("---")
             
-            st.info(f"بصمة السيولة: {res['SMC']} | منطقة الخصم: تحت {res['Fib']}")
-            st.success(f"قوة الاستراتيجية: {res['القوة']}% | جودة الصفقة: {res['م:ع']}")
+            # قسم 1: الأرقام الاستراتيجية
+            st.markdown("### 1️⃣ الأرقام الاستراتيجية (بالقرش)")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("السعر الحالي", f"{res['price']} ج.م")
+            c2.metric("المستهدف الأول", f"{res['target1']} ج.م")
+            c3.metric("المستهدف الرئيسي", f"{res['target2']} ج.م")
+            c4.metric("وقف الخسارة 🛡️", f"{res['stop']} ج.م")
+            
+            # قسم 2: بصمة السيولة
+            st.markdown("### 2️⃣ بصمة السيولة والمؤسسات (SMC Insight)")
+            fvg_status = "إيجابية جداً ✅ (دخول حيتان)" if res['fvg'] else "تحتاج تأكيد ⚠️ (سيولة أفراد)"
+            st.info(f"""
+            * **سلوك السيولة:** {fvg_status}
+            * **منطقة الخصم (المنطقة الذهبية):** تحت مستويات **{res['fib']}**
+            * **حالة التذبذب:** السهم في حالة حركة **{res['volatility']}**
+            """)
+            
+            # قسم 3: تحليل زارا للقرار
+            st.markdown("### 3️⃣ تحليل زارا للقرار (الخلاصة الاستراتيجية)")
+            quality = "عالية الجودة (احترافية)" if res['rr'] >= 2 else "متوسطة الجودة"
+            st.success(f"""
+            * **قوة التجميع:** حصل السهم على تقييم **{res['score']}%** بناءً على الاستراتيجية.
+            * **نسبة المخاطرة للعائد:** **1:{res['rr']}** (كل جنيه مخاطرة يقابله {res['rr']} جنيه ربح متوقع).
+            * **الخلاصة:** السهم في منطقة {'مثالية للشراء' if res['score'] >= 80 else 'تحتاج مراقبة'} مع الالتزام التام بمستويات وقف الخسارة المذكورة أعلاه.
+            """)
         else:
-            st.error("السهم غير مسجل في قاعدة البيانات الحالية.")
+            st.error("الرمز غير موجود أو البيانات غير كافية.")
