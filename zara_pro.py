@@ -5,32 +5,44 @@ import os
 
 # إعدادات الهاتف
 st.set_page_config(page_title="Zara Pro Radar", layout="wide")
+DATA_FILE = "zara_data_final.csv"
 
-st.title("🦅 رادار زارا برو - مصر")
+# وظيفة الألوان (أخضر=قوي، أحمر=ضعيف)
+def apply_color(val):
+    color = '#27ae60' if val >= 70 else '#f1c40f' if val >= 40 else '#e74c3c'
+    return f'background-color: {color}; color: black; font-weight: bold'
 
-# قائمة الأسهم المختارة (يمكنك زيادتها)
-TICKERS = ["COMI.CA", "FWRY.CA", "SWDY.CA", "ABUK.CA", "ETEL.CA"]
+st.title("🦅 رادار زارا برو - السوق المصري")
+
+# قائمة الأسهم
+TICKERS = ["COMI.CA", "FWRY.CA", "SWDY.CA", "ABUK.CA", "ETEL.CA", "ADIB.CA"]
 
 if st.button("🚀 ابدأ المسح والتحليل"):
-    results = []
-    # مكان عرض الجدول الحي
+    storage = []
+    progress_bar = st.progress(0)
     table_placeholder = st.empty()
     
-    for sym in TICKERS:
+    for idx, sym in enumerate(TICKERS):
         try:
             df = yf.download(sym, period="1mo", progress=False)
             if not df.empty:
-                last_p = round(float(df['Close'].iloc[-1]), 2)
-                results.append({"الرمز": sym.replace(".CA", ""), "السعر": last_p})
-                # عرض الجدول سهم بسهم
-                table_placeholder.table(pd.DataFrame(results))
+                curr = round(float(df['Close'].iloc[-1]), 2)
+                h_max = df['High'].max()
+                l_min = df['Low'].min()
+                # معادلة القوة
+                score = round(((h_max - curr) / (h_max - l_min)) * 100) if h_max != l_min else 0
+                
+                storage.append({"الرمز": sym.replace(".CA", ""), "السعر": curr, "القوة %": score})
+                # تحديث الجدول حياً
+                table_placeholder.table(pd.DataFrame(storage).style.applymap(apply_color, subset=['القوة %']))
         except: continue
+        progress_bar.progress((idx + 1) / len(TICKERS))
     
-    if results:
-        pd.DataFrame(results).to_csv("zara_db.csv", index=False)
-        st.success("✅ تم تحديث البيانات بنجاح!")
+    if storage:
+        pd.DataFrame(storage).to_csv(DATA_FILE, index=False)
+        st.success("✅ اكتمل التحديث!")
 
-# عرض البيانات القديمة لضمان عدم تعليق الصفحة
-if os.path.exists("zara_db.csv") and os.path.getsize("zara_db.csv") > 0:
-    st.write("📊 آخر نتائج محفوظة:")
-    st.dataframe(pd.read_csv("zara_db.csv"))
+# عرض البيانات القديمة بأمان
+if os.path.exists(DATA_FILE) and os.path.getsize(DATA_FILE) > 0:
+    st.write("### 📊 آخر نتائج مسجلة:")
+    st.table(pd.read_csv(DATA_FILE).style.applymap(apply_color, subset=['القوة %']))
