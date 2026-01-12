@@ -4,22 +4,27 @@ import pandas as pd
 import os
 import time
 
-# إعدادات النسخة النهائية للهاتف
-DATA_FILE = "zara_full_mobile.csv"
-st.set_page_config(page_title="Zara Pro Mobile", layout="wide")
+# إعدادات النسخة الاحترافية للهاتف
+DATA_FILE = "zara_egypt_pro.csv"
+st.set_page_config(page_title="Zara Egypt Pro", layout="wide")
 
-# القائمة الموسعة (أهم أسهم السوق المصري)
+# القائمة الموسعة (أهم أسهم السوق المصري للوصول لـ 200)
 TICKERS = [
-    "ARCC.CA", "UNIT.CA", "COMI.CA", "FWRY.CA", "ETEL.CA", "ABUK.CA", "MFPC.CA", 
-    "BTEL.CA", "SWDY.CA", "TMGH.CA", "ESRS.CA", "ORAS.CA", "EKHO.CA", "CIEB.CA", 
-    "ADIB.CA", "PHDC.CA", "HELI.CA", "MNHD.CA", "ELSH.CA", "AMER.CA", "CCAP.CA", 
-    "RAYA.CA", "TAQA.CA", "ISPH.CA", "RMDA.CA", "EGAL.CA", "ALCN.CA", "DSMC.CA"
-    # يمكنك إضافة أي رمز آخر هنا بنفس التنسيق
+    "COMI.CA", "FWRY.CA", "SWDY.CA", "TMGH.CA", "ABUK.CA", "MFPC.CA", "ETEL.CA",
+    "BTEL.CA", "ESRS.CA", "EKHO.CA", "CIEB.CA", "ADIB.CA", "ORAS.CA", "ORWE.CA",
+    "PHDC.CA", "MNHD.CA", "HELI.CA", "ELSH.CA", "PORT.CA", "AMER.CA", "ARCC.CA",
+    "UNIT.CA", "LCSW.CA", "ACGC.CA", "ASCM.CA", "AJWA.CA", "RMDA.CA", "ISPH.CA",
+    "EGAL.CA", "CCAP.CA", "RAYA.CA", "TAQA.CA", "ALCN.CA", "DSMC.CA", "MPRC.CA",
+    "HRHO.CA", "ATQA.CA", "DAPH.CA", "EEII.CA", "MBSC.CA", "EDBM.CA", "QNBA.CA",
+    "CANA.CA", "SAUD.CA", "FAIT.CA", "EXPA.CA", "MICH.CA", "SPMD.CA", "DICE.CA",
+    "ZMID.CA", "EMFD.CA", "IFAP.CA", "AFMC.CA", "MCQE.CA", "SKPC.CA", "AMOC.CA",
+    "KABO.CA", "ORAS.CA", "OIH.CA", "GBCO.CA", "AUTO.CA", "EITP.CA", "RAQT.CA"
+    # يمكنك الاستمرار في إضافة أي رمز تتابعه بنفس الصيغة (الرمز + .CA)
 ]
 
-st.title("🦅 منظومة زارا برو - السوق المصري")
+st.title("🦅 رادار زارا برو - السوق المصري")
 
-if st.button("🔄 تحديث الـ 200 سهم (مزامنة آمنة)"):
+if st.button("🔄 تحديث شامل لكافة الأسهم"):
     storage = []
     progress = st.progress(0)
     status = st.empty()
@@ -27,32 +32,44 @@ if st.button("🔄 تحديث الـ 200 سهم (مزامنة آمنة)"):
     for idx, sym in enumerate(TICKERS):
         status.text(f"⏳ فحص السهم {idx+1} من {len(TICKERS)}: {sym}")
         try:
-            # استخدام interval يومي لسرعة التحميل على الهاتف
+            # جلب البيانات
             df = yf.download(sym, period="1mo", interval="1d", progress=False)
             if not df.empty:
                 curr = df['Close'].iloc[-1]
-                # حساب بسيط لقوة السهم (أعلى سعر في شهر)
                 h_max = df['High'].max()
+                l_min = df['Low'].min()
+                # حساب قوة السهم (Score)
+                # إذا كان السعر قريب من القاع الشهري، تكون الفرصة أكبر
+                score = round(((h_max - curr) / (h_max - l_min)) * 100) if h_max != l_min else 0
+                
                 storage.append({
                     "الرمز": sym.replace(".CA", ""), 
                     "السعر": round(float(curr), 2),
-                    "أعلى شهر": round(float(h_max), 2)
+                    "القوة %": score,
+                    "أعلى سعر": round(float(h_max), 2)
                 })
         except: continue
         
-        # استراحة قصيرة جداً كل 5 أسهم لتجنب تعليق المتصفح
-        if (idx + 1) % 5 == 0: time.sleep(1)
+        # حماية الهاتف من التعليق
+        if (idx + 1) % 10 == 0: time.sleep(1)
         progress.progress((idx + 1) / len(TICKERS))
     
     if storage:
         pd.DataFrame(storage).to_csv(DATA_FILE, index=False)
-        st.success("✅ اكتمل تحديث كافة الأسهم!")
+        st.success("✅ تم تحديث الرادار بنجاح!")
 
-# عرض النتائج
+# عرض النتائج في جدول احترافي
 if os.path.exists(DATA_FILE):
-    st.subheader("📊 تقرير الفرص المتاحة")
+    st.subheader("📊 تحليل الفرص الحالية")
     df_final = pd.read_csv(DATA_FILE)
-    # ترتيب الأسهم من الأرخص للأغلى أو حسب القوة
-    st.dataframe(df_final.sort_values(by="السعر"), use_container_width=True)
+    
+    # فلترة لإظهار الأسهم القوية فقط (أعلى من 70%)
+    df_strong = df_final[df_final["القوة %"] > 70].sort_values(by="القوة %", ascending=False)
+    
+    st.write("🔥 **فرص ذهبية (قريبة من القاع الشهري):**")
+    st.table(df_strong.head(10))
+    
+    st.write("📑 **كافة الأسهم:**")
+    st.dataframe(df_final.sort_values(by="الرمز"), use_container_width=True)
 else:
-    st.info("اضغط على زر التحديث بالأعلى لجلب بيانات السوق.")
+    st.info("اضغط على الزر في الأعلى لبدء المسح الشامل.")
